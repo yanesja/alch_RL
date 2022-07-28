@@ -1,0 +1,430 @@
+---
+title: "alch_RL"
+author: "Yanes, J. A."
+date: "12/13/2021"
+output: html_document
+---
+
+## Reinforcment Learning and Alcohol Use Disorder
+
+Author(s): Yanes, J. A.
+
+The following code loads, prepares, and analyzes data associated with the NIH/NIAAA Reinforcement Learning and Alcohol Use Disorder study.
+
+
+```{r include=FALSE}
+# ==============================
+# initial setup
+# 1. setup
+# 2. libraries
+# 3. load data
+# 4. load workspace
+# 5. data prep
+# 
+# ==============================
+# 1. setup
+# clear workspace
+
+rm(list=ls(all.names=TRUE))
+
+
+# _______________
+# 2. libraries
+library(hBayesDM)
+library(tidyverse)
+
+
+# _______________
+# 3. load data (uncomment when raw data needed)
+
+# # select files
+# filenames = list.files(path= '../data/raw', pattern='*.txt')
+# 
+# # create empty dataframe
+# datum = data.frame()
+# 
+# # loop thru filenames, load, index, combine data.
+# for (file in filenames){
+#   
+#   # load file w/ raw data
+#   tdatum = read.table(paste0('../data/raw/', file),
+#                       sep="\t", header=TRUE)
+#   
+#   # remove second header row
+#   tdatum = tdatum[!grepl('Event',tdatum$Event), ]
+#   
+#   # insert subj name / remove unneeded chars from subj name
+#   tdatum = cbind(ID=gsub('_summary.txt', '', file),
+#                  tdatum)
+#   
+#   # combine w/ data from everyone else
+#   datum = rbind(datum, tdatum)
+#   
+# }
+# 
+# # cleanup
+# rm(file, filenames, tdatum)
+
+
+# # _______________
+# 4. load workspace
+load ('alch_RL.RData')
+
+
+# # _______________
+# 5. setup
+
+# create cols for modeling
+datum$subjID = datum$ID
+datum$outcome = as.numeric(datum$Success)
+datum$choice = as.numeric(datum$Shape_Picked)
+
+# replace vals
+datum$choice[datum$choice == '-1'] = NA
+datum$outcome[datum$outcome == '-1'] = NA
+
+# adjust vals
+datum$choice = datum$choice+1
+datum$outcome[datum$outcome == '0'] = -1
+```
+\
+\
+```{r message=FALSE}
+# ==============================
+# modeling
+# 1. experience-weighted attraction model
+# 2. fictitious update
+# 3. fictitious update w/o alpha
+# 4. reward/punishment
+# 5. fictitious update w/ reward/punishment learn rates
+# 6. (basic) rescorla wagner model
+# 
+# 
+# ==============================
+# 1. experience-weighted attraction model
+model.prl.ewa = prl_ewa(datum, 
+                        niter=2000, 
+                        nwarmup=1000, 
+                        nchain=4, 
+                        ncore=2)
+
+# check traces
+plot(model.prl.ewa, type='trace') # ok
+
+# check rhats
+rhat(model.prl.ewa, less=1.1) # ok
+
+# check convergence
+plot(model.prl.ewa)
+plotInd(model.prl.ewa, pars='phi')
+plotInd(model.prl.ewa, pars='rho')
+plotInd(model.prl.ewa, pars='beta')
+plotHDI(model.prl.ewa$parVals$mu_phi)
+plotHDI(model.prl.ewa$parVals$mu_rho)
+plotHDI(model.prl.ewa$parVals$mu_beta)
+
+# create dataframe w/ output
+odatum = model.prl.ewa$allIndPars
+
+# rm 'PE' from subjID, convert to numeric
+odatum$subjID = as.numeric(gsub('PE', '', odatum$subjID))
+
+# create group col
+odatum = odatum %>% 
+  mutate(Group = 
+           case_when(subjID < 200 ~ '0', 
+                     subjID >= 200 ~ '1'))
+
+# compare params b/w groups
+model.prl.ewa.t = lm(odatum$beta ~ odatum$Group)
+summary(model.prl.ewa.t)
+
+
+# ---------------
+# 2. fictitious update
+model.prl.fic = prl_fictitious(datum, 
+                               niter=2000, 
+                               nwarmup=1000,
+                               nchain=4, 
+                               ncore=2)
+
+# check traces
+plot(model.prl.fic, type='trace') # ok
+
+# check rhats
+rhat(model.prl.fic, less=1.1) # ok
+
+# check convergence
+plot(model.prl.fic)
+plotInd(model.prl.fic, pars='eta')
+plotInd(model.prl.fic, pars='alpha')
+plotInd(model.prl.fic, pars='beta')
+plotHDI(model.prl.fic$parVals$mu_eta)
+plotHDI(model.prl.fic$parVals$mu_alpha)
+plotHDI(model.prl.fic$parVals$mu_beta)
+
+# create dataframe w/ output
+odatum2 = model.prl.fic$allIndPars
+
+# rm 'PE' from subjID, convert to numeric
+odatum2$subjID = as.numeric(gsub('PE', '', odatum2$subjID))
+
+# create group col
+odatum2 = odatum2 %>% 
+  mutate(Group = 
+           case_when(subjID < 200 ~ '0', 
+                     subjID >= 200 ~ '1'))
+
+# compare params b/w groups
+model.prl.fic.t = lm(odatum2$beta ~ odatum2$Group)
+summary(model.prl.fic.t)
+
+
+# ---------------
+# 3. fictitious update w/o alpha
+model.prl.fic.woa = prl_fictitious_woa(datum, 
+                                   niter=2000, 
+                                   nwarmup=1000, 
+                                   nchain=4, 
+                                   ncore=2)
+
+# check traces
+plot(model.prl.fic.woa, type='trace') # ok
+
+# check rhats
+rhat(model.prl.fic.woa, less=1.1) # ok
+
+# check convergence
+plot(model.prl.fic.woa)
+plotInd(model.prl.fic.woa, pars='eta')
+plotInd(model.prl.fic.woa, pars='beta')
+plotHDI(model.prl.fic.woa$parVals$mu_eta)
+plotHDI(model.prl.fic.woa$parVals$mu_beta)
+
+# create dataframe w/ output
+odatum3 = model.prl.fic.woa$allIndPars
+
+# rm 'PE' from subjID, convert to numeric
+odatum3$subjID = as.numeric(gsub('PE', '', odatum3$subjID))
+
+# create group col
+odatum3 = odatum3 %>% 
+  mutate(Group = 
+           case_when(subjID < 200 ~ '0', 
+                     subjID >= 200 ~ '1'))
+
+# compare params b/w groups
+model.prl.fic.woa.t = lm(odatum3$beta ~ odatum3$Group)
+summary(model.prl.fic.woa.t)
+
+
+# _______________
+# 4. reward-punishment
+model.prl.rp = prl_rp(datum,
+                      niter=2000, 
+                      nwarmup=1000, 
+                      nchain=4, 
+                      ncore=2)
+
+# check traces
+plot(model.prl.rp, type='trace') # ok
+
+# check rhats
+rhat(model.prl.rp, less=1.1) # ok
+
+# check convergence
+plot(model.prl.rp)
+plotInd(model.prl.rp, pars='Apun')
+plotInd(model.prl.rp, pars='Arew')
+plotInd(model.prl.rp, pars='beta')
+plotHDI(model.prl.rp$parVals$mu_Apun)
+plotHDI(model.prl.rp$parVals$mu_Arew)
+plotHDI(model.prl.rp$parVals$mu_beta)
+
+# create dataframe w/ output
+odatum4 = model.prl.rp$allIndPars
+
+# rm 'PE' from subjID, convert to numeric
+odatum4$subjID = as.numeric(gsub('PE', '', odatum4$subjID))
+
+# create group col
+odatum4 = odatum4 %>% 
+  mutate(Group = 
+           case_when(subjID < 200 ~ '0', 
+                     subjID >= 200 ~ '1'))
+
+# compare params b/w groups
+model.prl.rp.t = lm(odatum4$beta ~ odatum4$Group)
+summary(model.prl.rp.t)
+
+
+# _______________
+# 5. fictitious update w/ reward/punishment learn rates
+model.prl.fic.rp = prl_fictitious_rp (datum,
+                                      niter=2000, 
+                                      nwarmup=1000, 
+                                      nchain=4, 
+                                      ncore=2)
+
+# check traces
+plot(model.prl.fic.rp, type='trace') # ok
+
+# check rhats
+rhat(model.prl.fic.rp, less=1.1) # ok
+
+# check convergence
+plot(model.prl.fic.rp)
+plotInd(model.prl.fic.rp, pars='eta_pos')
+plotInd(model.prl.fic.rp, pars='eta_neg')
+plotInd(model.prl.fic.rp, pars='alpha')
+plotInd(model.prl.fic.rp, pars='beta')
+plotHDI(model.prl.fic.rp$parVals$mu_eta_pos)
+plotHDI(model.prl.fic.rp$parVals$mu_eta_neg)
+plotHDI(model.prl.fic.rp$parVals$mu_alpha)
+plotHDI(model.prl.fic.rp$parVals$mu_beta)
+
+# create dataframe w/ output
+odatum5 = model.prl.fic.rp$allIndPars
+
+# rm 'PE' from subjID, convert to numeric
+odatum5$subjID = as.numeric(gsub('PE', '', odatum5$subjID))
+
+# create group col
+odatum5 = odatum5 %>% 
+  mutate(Group = 
+           case_when(subjID < 200 ~ '0', 
+                     subjID >= 200 ~ '1'))
+
+# compare params b/w groups
+model.prl.fic.rp.t = lm(odatum5$eta_neg ~ odatum5$Group)
+summary(model.prl.fic.rp.t)
+
+
+# ---------------
+# 6. (basic) rescorla-wagner model
+model.rw = bandit2arm_delta(datum,
+                            niter=2000, 
+                            nwarmup=1000, 
+                            nchain=4, 
+                            ncore=2)
+
+# check traces
+plot(model.rw, type='trace') # ok
+
+# check rhats
+rhat(model.rw, less=1.1) # ok
+
+# check convergence
+plot(model.rw)
+plotInd(model.rw, pars='A')
+plotInd(model.rw, pars='tau')
+# plotHDI(model.rw$parVals$A)
+# plotHDI(model.rw$parVals$tau)
+
+# create dataframe w/ output
+odatum6 = model.rw$allIndPars
+
+# rm 'PE' from subjID, convert to numeric
+odatum6$subjID = as.numeric(gsub('PE', '', odatum6$subjID))
+
+# create group col
+odatum6 = odatum6 %>% 
+  mutate(Group = 
+           case_when(subjID < 200 ~ '0', 
+                     subjID >= 200 ~ '1'))
+
+# compare params b/w groups
+model.rw.t = lm(odatum6$tau ~ odatum6$Group)
+summary(model.rw.t)
+
+
+```
+
+```{r}
+# 1. model comparison
+
+# leave-one-out-info-criteria
+printFit(model.prl.ewa, 
+         model.prl.fic, 
+         model.prl.fic.woa, 
+         model.prl.rp,
+         model.prl.fic.rp,
+         model.rw, ic='both')
+
+
+# ==============================
+# modelling (cont'd)
+# 1. bayesian between-group comparison 
+# 2. model-based fMRI regressors
+# 
+# 
+# ==============================
+# 1. bayesian between-group comparison
+
+# revise subj col
+datum$ID = as.numeric(gsub('PE', '', datum$ID))
+
+# subset data by group
+datum.AUD = subset(datum, ID >= 200 )
+datum.HC = subset(datum, ID < 200)
+
+
+# group-specific models
+# fictitious update w/ reward-punishment, AUD
+model.prl.fic.rp.AUD = prl_fictitious_rp (datum.AUD,
+                                          niter=2000, 
+                                          nwarmup=1000, 
+                                          nchain=4, 
+                                          ncore=2)
+
+# group-specific models
+# fictitious update w/ reward-punishment, HC
+model.prl.fic.rp.HC = prl_fictitious_rp (datum.HC,
+                                         niter=2000, 
+                                         nwarmup=1000, 
+                                         nchain=4, 
+                                         ncore=2)
+
+# between-group difference in eta_neg param
+diffDist = model.prl.fic.rp.AUD$parVals$mu_eta_neg - 
+  model.prl.fic.rp.HC$parVals$mu_eta_neg
+
+# compute 95% highest density interval (HDI)
+HDIofMCMC(diffDist)
+
+# plot group mean differences
+plotHDI(diffDist)
+
+
+# ---------------
+# 2. model-based fMRI regressors
+
+## fictitious update w/ reward/punishment
+## w/ modelRegressor=TRUE
+# model.prl.fic.rp = prl_fictitious_rp (datum,
+#                                       niter=2000, 
+#                                       nwarmup=1000, 
+#                                       nchain=4, 
+#                                       ncore=2,
+#                                       modelRegressor=TRUE)
+
+# extract stim val regressors
+stimval.all = model.prl.fic.rp$modelRegressor$pe_c
+
+# check dims
+dim(model.prl.fic.rp$modelRegressor$pe_c)
+
+# plot example subject
+plot(stimval.all[1, ], type="l", 
+     xlab="Trial", ylab="dv (subject #1)")
+
+
+```
+
+
+```{r}
+# save workspace
+save.image(file='alch_RL.RData')
+
+
+```
